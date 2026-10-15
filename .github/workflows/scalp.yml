@@ -1,0 +1,43 @@
+name: Scalp signals
+
+on:
+  schedule:
+    - cron: '*/5 6-21 * * 1-5'       # every 5 minutes (the fastest GitHub allows), Mon-Fri
+  workflow_dispatch:                # lets you press "Run workflow" by hand
+
+concurrency: scalp                  # never two runs at the same time
+
+jobs:
+  scalp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Restore the bot's memory (open trades, counters)
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: scalp-state-${{ github.run_id }}
+          restore-keys: scalp-state-
+
+      - name: Run the bot
+        env:
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scalp_bot.py
+
+      - name: Save the bot's memory
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: scalp-state-${{ github.run_id }}
