@@ -134,6 +134,9 @@ def render(tr, path="scalp.png"):
     d.line([(376, 368), (376, 485)], fill=(80, 90, 100, 255), width=2)
     d.text((422, 400), side, font=font("Black", 128), fill=WHITE, anchor="lm")
     spaced(d, (424, 478), f"XAU/USD  ·  RR 1:{tr['ratio']:g}", font("Medium", 24), (175, 182, 195), 6)
+    if tr.get("n"):                                   # signal counter, top right of the panel
+        d.text((934, 370), f"#{tr['n']:02d}", font=font("Black", 44), fill=rgba(light), anchor="rm")
+        d.text((934, 416), "/ 60", font=font("Bold", 26), fill=(150, 156, 170), anchor="rm")
 
     # gold bars + instrument
     gold = Image.open(A / "friend_gold.png").convert("RGBA")
