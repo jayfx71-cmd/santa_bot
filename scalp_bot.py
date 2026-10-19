@@ -510,7 +510,10 @@ def main():
         greeted.append(f"{day}:{session}:open")
     for name, (sa, sc) in SESSIONS.items():                       # closing message, once, only for sessions we opened
         if now.hour * 60 + now.minute >= sc and f"{day}:{name}:open" in greeted and f"{day}:{name}:close" not in greeted:
-            b.send(SESSION_TEXT[name][1])
+            msg = SESSION_TEXT[name][1]
+            if name == "EVENING" and now.weekday() == 4:          # Friday: see you Monday
+                msg = msg.replace("we go again tomorrow at 07:00", "enjoy your weekend and we go again on Monday at 07:00")
+            b.send(msg)
             greeted.append(f"{day}:{name}:close")
     s["greeted"] = greeted[-30:]
     for name, (sa, sc) in SESSIONS.items():
