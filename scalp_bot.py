@@ -21,6 +21,8 @@ CADENCE_MIN = 15   # a new signal every this many minutes (None = old pacing)
 GAP_MIN, GAP_MAX = 20, 40      # seconds between signals in one run (short, so no signal goes stale while waiting)
 EXPIRE_MIN = 90
 PRE_SIGNAL = True    # before every new signal: tell you to close trades that are still open (or a short heads-up)
+TEXT_ONLY = True     # True = plain text messages, no pictures. False = the picture cards
+BRAND_LINE = "\U0001F385 <b>PROFITS SANTA AI</b>"
 RANDOM_MODE = True   # True = random BUY/SELL at the live price so the session always gets its signals. False = ranked setups
 SHOW_SESSION_SUMMARY = False
 RECAP_AFTER_MIN = 21 * 60 + 10
@@ -309,6 +311,27 @@ def caption(tr):
             f"👆 <i>Tap on any price number to copy</i>")
 
 
+def signal_text(tr):
+    up = tr["side"] == "BUY"
+    dot = "\U0001F7E2" if up else "\U0001F534"
+    return (f"{BRAND_LINE}  \u00b7  #{tr['n']:02d} / 60\n"
+            f"{dot} <b>{tr['side']} XAU/USD</b>\n\n"
+            f"<b>Entry</b>  <code>{tr['entry']:.2f}</code>\n"
+            f"<b>Stop Loss</b>  <code>{tr['sl']:.2f}</code>\n"
+            f"<b>Take Profit</b>  <code>{tr['tp']:.2f}</code>  (1:{tr['ratio']:g})\n\n"
+            f"\U0001F446 <i>Tap on any price number to copy</i>")
+
+
+def recap_text(label, wins, be_n):
+    lines = [f"\U0001F3C6 <b>PROFITS SANTA AI DAY RECAP</b> \u00b7 {label}",
+             f"\u2705 <b>{len(wins)}</b> winning trades today", ""]
+    for t in wins:
+        lines.append(f"\u2705 #{t['n']:02d}  {t['side']}  \u00b7  {t['session'].title()}  \u00b7  1:{t['ratio']:g}")
+    if be_n:
+        lines += ["", f"\U0001F6E1 {be_n} trade{'s' if be_n != 1 else ''} protected at break-even (partial wins)"]
+    return "\n".join(lines)
+
+
 def resolve(s, df, force_close=False):
     """Follow every open trade candle by candle. Once price moves BE_TRIGGER_R x the risk our way we send a
     'Set BE' alert; if price then comes back to the entry the trade closes as BE (0R, protected, a partial win)."""
@@ -496,12 +519,15 @@ def main():
         be_n = sum(1 for t in s["closed"] if t.get("day") == day and t["result"] == "BE")
         label = (now + timedelta(hours=1)).strftime("%a %d %b")
         cap = f"\U0001F3C6 <b>PROFITS SANTA AI DAY RECAP</b> \u00b7 {label}\n{len(wins)} winning trades today"
-        try:
-            import friend_recap
-            b.send_photo(friend_recap.render_recap(label, wins, be_count=be_n), cap)
-        except Exception as e:
-            print(f"Recap card failed, sending text: {str(e)[:150]}")
-            b.send(cap)
+        if TEXT_ONLY:
+            b.send(recap_text(label, wins, be_n))
+        else:
+            try:
+                import friend_recap
+                b.send_photo(friend_recap.render_recap(label, wins, be_count=be_n), cap)
+            except Exception as e:
+                print(f"Recap card failed, sending text: {str(e)[:150]}")
+                b.send(cap)
         s["recap_days"].append(day)
     session, a, c = session_of(now)
     greeted = s.setdefault("greeted", [])
@@ -580,7 +606,10 @@ def main():
                     s.setdefault("used", []).append(key)
                     continue
                 tr["day"] = day
-                b.send_image_or_text(lambda: make_scalp_image(tr), caption(tr))
+                if TEXT_ONLY:
+                    b.send(signal_text(tr))
+                else:
+                    b.send_image_or_text(lambda: make_scalp_image(tr), caption(tr))
                 s["open"].append(tr)
                 s["count"][session] = s["count"].get(session, 0) + 1
                 s.setdefault("used", []).append(key)
