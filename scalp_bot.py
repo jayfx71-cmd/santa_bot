@@ -74,6 +74,7 @@ def load():
     s.setdefault("summary_sent", [])
     s.setdefault("used", [])
     s.setdefault("recap_days", [])
+    s.setdefault("history", {})        # one small line per trading day, kept for the weekly / monthly / yearly recaps
     return s
 
 
@@ -332,6 +333,94 @@ def recap_text(label, wins, be_n):
     return "\n".join(lines)
 
 
+def record_day(s, day):
+    """Saves the day's numbers (signals taken, wins, break-even) for the weekly / monthly / yearly recaps."""
+    ts = [t for t in s["closed"] if t.get("day") == day]
+    s["history"][day] = {"sent": max(len(ts), sum(s["count"].values()) if s.get("day") == day else 0),
+                         "wins": sum(1 for t in ts if t["r"] > 0),
+                         "be": sum(1 for t in ts if t["result"] == "BE")}
+    # first run after the update: fill in the earlier days still remembered in the trade list
+    days = sorted({t.get("day") for t in s["closed"] if t.get("day")})
+    for d in days[1:]:
+        if d not in s["history"] and d < day:
+            tt = [t for t in s["closed"] if t.get("day") == d]
+            s["history"][d] = {"sent": len(tt), "wins": sum(1 for t in tt if t["r"] > 0),
+                               "be": sum(1 for t in tt if t["result"] == "BE")}
+
+
+def next_trading_day(d):
+    d = d + timedelta(days=1)
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+
+def _sum(days, hist):
+    return (sum(hist[x]["sent"] for x in days), sum(hist[x]["wins"] for x in days), sum(hist[x]["be"] for x in days))
+
+
+def period_text(kind, hist, d):
+    """kind: week / month / year. d = the last trading day of the period (a date)."""
+    iso = d.isocalendar()
+    if kind == "week":
+        keys = sorted(k for k in hist if datetime.strptime(k, "%Y-%m-%d").isocalendar()[:2] == iso[:2])
+        title, sub = "WEEKLY RECAP", None
+        rows = [(datetime.strptime(k, "%Y-%m-%d").strftime("%a %d %b"), [k]) for k in keys]
+    elif kind == "month":
+        keys = sorted(k for k in hist if k[:7] == d.strftime("%Y-%m"))
+        title, sub = "MONTHLY RECAP", d.strftime("%B %Y")
+        weeks = {}
+        for k in keys:
+            weeks.setdefault(datetime.strptime(k, "%Y-%m-%d").isocalendar()[:2], []).append(k)
+        rows = []
+        for i, w in enumerate(sorted(weeks), 1):
+            a, z = datetime.strptime(weeks[w][0], "%Y-%m-%d"), datetime.strptime(weeks[w][-1], "%Y-%m-%d")
+            rows.append((f"Week {i} ({a.strftime('%d %b')}{'' if a == z else ' \u2013 ' + z.strftime('%d %b')})", weeks[w]))
+    else:
+        keys = sorted(k for k in hist if k[:4] == d.strftime("%Y"))
+        title, sub = "YEARLY RECAP", d.strftime("%Y")
+        months = {}
+        for k in keys:
+            months.setdefault(k[:7], []).append(k)
+        rows = [(datetime.strptime(m + "-01", "%Y-%m-%d").strftime("%B"), months[m]) for m in sorted(months)]
+    if not keys:
+        return None
+    if kind == "week":
+        a, z = datetime.strptime(keys[0], "%Y-%m-%d"), datetime.strptime(keys[-1], "%Y-%m-%d")
+        sub = a.strftime("%a %d %b") + ("" if a == z else " \u2013 " + z.strftime("%a %d %b"))
+    sent, wins, be = _sum(keys, hist)
+    out = [f"{BRAND_LINE} \u00b7 <b>{title}</b>", f"\U0001F4C5 {sub}", "",
+           f"\U0001F4CA Signals taken: <b>{sent}</b>",
+           f"\u2705 Winning trades: <b>{wins}</b>",
+           f"\U0001F6E1 Break-even (protected): <b>{be}</b>", "",
+           f"<b>{'Daily' if kind == 'week' else 'Weekly' if kind == 'month' else 'Monthly'} wins</b>"]
+    for label, ks in rows:
+        _, w, _b = _sum(ks, hist)
+        out.append(f"\u2705 {label}: {w}")
+    return "\n".join(out)
+
+
+def send_period_recaps(s, b, d):
+    """Called right after the day recap. Weekly on the last trading day of the week, monthly and yearly on the last of the month / year."""
+    done = s.setdefault("period_recaps", [])
+    nd = next_trading_day(d)
+    todo = []
+    if d.weekday() == 4 or nd.month != d.month:
+        todo.append(("week", d.strftime("%G-W%V")))
+    if nd.month != d.month:
+        todo.append(("month", d.strftime("%Y-%m")))
+    if nd.year != d.year:
+        todo.append(("year", d.strftime("%Y")))
+    for kind, key in todo:
+        if f"{kind}:{key}" in done:
+            continue
+        txt = period_text(kind, s["history"], d)
+        if txt:
+            b.send(txt)
+        done.append(f"{kind}:{key}")
+    s["period_recaps"] = done[-40:]
+
+
 def resolve(s, df, force_close=False):
     """Follow every open trade candle by candle. Once price moves BE_TRIGGER_R x the risk our way we send a
     'Set BE' alert; if price then comes back to the entry the trade closes as BE (0R, protected, a partial win)."""
@@ -529,6 +618,8 @@ def main():
                 print(f"Recap card failed, sending text: {str(e)[:150]}")
                 b.send(cap)
         s["recap_days"].append(day)
+        record_day(s, day)
+        send_period_recaps(s, b, now.date())
     session, a, c = session_of(now)
     greeted = s.setdefault("greeted", [])
     if session and f"{day}:{session}:open" not in greeted:        # opening message, once per session
