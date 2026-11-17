@@ -21,7 +21,7 @@ CADENCE_MIN = 15   # a new signal every this many minutes (None = old pacing)
 GAP_MIN, GAP_MAX = 20, 40      # seconds between signals in one run (short, so no signal goes stale while waiting)
 EXPIRE_MIN = 90
 PRE_SIGNAL = True    # before every new signal: tell you to close trades that are still open (or a short heads-up)
-TEXT_ONLY = True     # True = plain text messages, no pictures. False = the picture cards
+TEXT_ONLY = False     # True = plain text messages, no pictures. False = the picture cards
 BRAND_LINE = "\U0001F385 <b>PROFITS SANTA AI</b>"
 RANDOM_MODE = True   # True = random BUY/SELL at the live price so the session always gets its signals. False = ranked setups
 SHOW_SESSION_SUMMARY = False
